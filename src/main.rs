@@ -6,15 +6,12 @@ use std::net::TcpStream;
 use std::str;
 use threadpool::ThreadPool;
 
+use config::Config;
 use curl::easy::{Easy, List};
 
 const BASE_URI: &str = "https://api.trustedservices.intel.com/sgx/dev";
 const PATH_SIGRL: &str = "/attestation/v4/sigrl";
 const PATH_REPORT: &str = "/attestation/v4/report";
-
-// TEMP de onde virá isto ?
-const SPID: &str = "** ESCONDIDO **";
-const KEY: &str = "** ESCONDIDO **";
 
 struct AEP {
     quote: String,
@@ -32,30 +29,34 @@ pub mod rap_capnp {
 }
 
 fn main() {
+    let settings = Config::builder()
+        .add_source(config::File::with_name("Settings"))
+        .build()
+        .unwrap();
+
+    let spid: String = match settings.get_string("spid") {
+        Ok(value) => value,
+        Err(error) => panic!("Error fetching SPID: {:?}", error),
+    };
+    println!("SPID = {}", spid);
+    let key: String = match settings.get_string("key") {
+        Ok(value) => value,
+        Err(error) => panic!("Error fetching secret key: {:?}", error),
+    };
+
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
     let pool = ThreadPool::new(4);
 
     for stream in listener.incoming() {
         let mut stream = stream.unwrap();
+        let key2 = key.to_owned(); // REVIEW
 
-        pool.execute(|| handle_connection(stream));
+        pool.execute(|| handle_connection(stream, key2));
     }
 
     //
     //
     //
-
-    let spid = "** ESCONDIDO **";
-    let key = "** ESCONDIDO **";
-    // let mut gid: [u8; 4] = [0x00, 0x00, 0x0b, 0x32];
-    let gid = "** ESCONDIDO **";
-
-    println!("SPID = {}, key = {}, gid = {:02x?}", spid, key, gid);
-
-    let (code, body) = get_sigrl(gid, key);
-
-    println!("{:?}", body); // responde body?
-    println!("Response code for get_sigrl: {}", code);
 
     // let mut easy = Easy::new();
     // easy.url("https://rust-lang.org/").unwrap();
@@ -85,7 +86,7 @@ fn main() {
 //     return vec![0u8; 4096];
 // }
 // retorna mensagem pronta a escrever: o output !!!
-fn handle_sigrl(reader: rap_capnp::request_sigrl::Reader) -> Vec<u8> {
+fn handle_sigrl(reader: rap_capnp::request_sigrl::Reader, key: String) -> Vec<u8> {
     println!("Handling RequestSigrl...");
 
     // let reader = deserialized
@@ -98,7 +99,7 @@ fn handle_sigrl(reader: rap_capnp::request_sigrl::Reader) -> Vec<u8> {
     };
     println!("Result: {}", gid);
 
-    let (code, body) = get_sigrl(gid, KEY);
+    let (code, body) = get_sigrl(gid, key.as_str());
 
     // let mut builder = capnp::message::Builder::new_default();
     // let mut response = builder.init_root::<rap_capnp::message::Builder>();
@@ -130,7 +131,7 @@ fn handle_sigrl(reader: rap_capnp::request_sigrl::Reader) -> Vec<u8> {
     return buffer;
 }
 
-fn handle_report(reader: rap_capnp::request_report::Reader) -> Vec<u8> {
+fn handle_report(reader: rap_capnp::request_report::Reader, key: String) -> Vec<u8> {
     println!("Handling RequestReport...");
     // return (0, vec![0u8; 4096]);
 
@@ -151,7 +152,7 @@ fn handle_report(reader: rap_capnp::request_report::Reader) -> Vec<u8> {
     //     nonce: String::from(""),
     // };
     // let (code, a, b, body) = get_report(aep, KEY);
-    let (code, rid, signature, certificates, body) = get_report(input_aep, KEY);
+    let (code, rid, signature, certificates, body) = get_report(input_aep, key.as_str());
 
     println!("Response code for get_report: {}", code);
 
@@ -181,7 +182,7 @@ fn handle_report(reader: rap_capnp::request_report::Reader) -> Vec<u8> {
     return buffer;
 }
 
-fn handle_connection(mut stream: TcpStream) {
+fn handle_connection(mut stream: TcpStream, key: String) {
     println!("Handling new connection...");
 
     // read length from stream: 4 bytes
@@ -209,17 +210,23 @@ fn handle_connection(mut stream: TcpStream) {
         // Ok(rap_capnp::message::Which::Empty(t)) => handle_sigrl_2(t),
         Ok(rap_capnp::r_a_p_message::Which::RequestSigrl(t)) => {
             println!("Entrou no request sigrl !!");
-            handle_sigrl(match t {
-                Ok(t) => t,
-                Err(e) => return,
-            })
+            handle_sigrl(
+                match t {
+                    Ok(t) => t,
+                    Err(e) => return,
+                },
+                key,
+            )
         }
         Ok(rap_capnp::r_a_p_message::Which::RequestReport(t)) => {
             println!("Entrou no request report !!");
-            handle_report(match t {
-                Ok(t) => t,
-                Err(e) => return,
-            })
+            handle_report(
+                match t {
+                    Ok(t) => t,
+                    Err(e) => return,
+                },
+                key,
+            )
         }
         Ok(rap_capnp::r_a_p_message::Which::ResponseSigrl(t)) => {
             println!("Entrou no response sigrl !!");
@@ -242,6 +249,8 @@ fn handle_connection(mut stream: TcpStream) {
     // write length to stream: 4 bytes
     let mut write_len = [0u8; 4];
     NetworkEndian::write_u32(&mut write_len, output.len() as u32);
+    // let num = u32::from_be_bytes(write_len);
+    // println!("write_len={}", num);
     stream.write_all(&write_len).unwrap();
 
     // write serialized data to stream
