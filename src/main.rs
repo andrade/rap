@@ -13,17 +13,6 @@ const BASE_URI: &str = "https://api.trustedservices.intel.com/sgx/dev";
 const PATH_SIGRL: &str = "/attestation/v4/sigrl";
 const PATH_REPORT: &str = "/attestation/v4/report";
 
-struct AEP {
-    quote: String,
-    nonce: String,
-}
-
-// TODO: talvez separar rede (uma função) de pré-processamento (outra função) e de pós-processamento (outra função). E também de protocolo de comunicação com clientes (outras funções).
-struct AVR {
-    quote: String,
-    nonce: String,
-}
-
 pub mod rap_capnp {
     include!(concat!(env!("OUT_DIR"), "/rap_capnp.rs"));
 }
@@ -53,45 +42,11 @@ fn main() {
 
         pool.execute(|| handle_connection(stream, key2));
     }
-
-    //
-    //
-    //
-
-    // let mut easy = Easy::new();
-    // easy.url("https://rust-lang.org/").unwrap();
-    // easy.write_function(|data| {
-    //     stdout().write_all(data).unwrap();
-    //     Ok(data.len())
-    // })
-    // .unwrap();
-    // easy.perform().unwrap();
-    // println!("{}", easy.response_code().unwrap());
-
-    // TORM obsolete
-    // let aep = AEP {
-    //     quote: String::from(""),
-    //     nonce: String::from(""),
-    // };
-    // let (code, a, b, body) = get_report(aep, key);
-    //
-    // println!("Response code for get_report: {}", code);
 }
 
-// fn handle_sigrl(capnp::message::Reader: reader) {}
-
-// // Retorna tamanho a escrever e... melhor não fazer assim? Tamanho vem de len. Talvez status ou só o vector?
-// fn handle_sigrl_2(r: core::result::Result<Ok, Err>) -> Vec<u8> {
-//     // return (0, vec![0u8; 4096]);
-//     return vec![0u8; 4096];
-// }
 // retorna mensagem pronta a escrever: o output !!!
 fn handle_sigrl(reader: rap_capnp::request_sigrl::Reader, key: String) -> Vec<u8> {
     println!("Handling RequestSigrl...");
-
-    // let reader = deserialized
-    //     .get_root::<rap_capnp::request_sigrl::Reader>()
-    //     .unwrap();
 
     let gid: &str = match reader.get_gid() {
         Ok(gid) => gid,
@@ -100,10 +55,6 @@ fn handle_sigrl(reader: rap_capnp::request_sigrl::Reader, key: String) -> Vec<u8
     println!("Result: {}", gid);
 
     let (code, body) = get_sigrl(gid, key.as_str());
-
-    // let mut builder = capnp::message::Builder::new_default();
-    // let mut response = builder.init_root::<rap_capnp::message::Builder>();
-    // response.set_response_sigrl(value)
 
     // prep outer message
     // prep outie
@@ -126,14 +77,11 @@ fn handle_sigrl(reader: rap_capnp::request_sigrl::Reader, key: String) -> Vec<u8
 
     println!("Writing response to stream...");
 
-    // return (0, vec![0u8; 4096]);
-    // return vec![0u8; 4096];
     return buffer;
 }
 
 fn handle_report(reader: rap_capnp::request_report::Reader, key: String) -> Vec<u8> {
     println!("Handling RequestReport...");
-    // return (0, vec![0u8; 4096]);
 
     let input_aep: &str = match reader.get_aep() {
         Ok(t) => t,
@@ -141,17 +89,6 @@ fn handle_report(reader: rap_capnp::request_report::Reader, key: String) -> Vec<
     };
     println!("Received AEP: {}", input_aep);
 
-    // let nonce: &str = match reader.get_nonce() {
-    //     Ok(t) => t,
-    //     Err(e) => "oops, error",
-    // };
-    // println!("Result: {}", nonce);
-
-    // let aep = AEP {
-    //     quote: String::from(""),
-    //     nonce: String::from(""),
-    // };
-    // let (code, a, b, body) = get_report(aep, KEY);
     let (code, rid, signature, certificates, body) = get_report(input_aep, key.as_str());
 
     println!("Response code for get_report: {}", code);
@@ -178,7 +115,6 @@ fn handle_report(reader: rap_capnp::request_report::Reader, key: String) -> Vec<
 
     println!("Writing response to stream...");
 
-    // return vec![0u8; 4096];
     return buffer;
 }
 
@@ -207,7 +143,6 @@ fn handle_connection(mut stream: TcpStream, key: String) {
             println!("Entrou no EMPTY !!");
             return;
         }
-        // Ok(rap_capnp::message::Which::Empty(t)) => handle_sigrl_2(t),
         Ok(rap_capnp::r_a_p_message::Which::RequestSigrl(t)) => {
             println!("Entrou no request sigrl !!");
             handle_sigrl(
@@ -236,21 +171,12 @@ fn handle_connection(mut stream: TcpStream, key: String) {
             println!("Entrou no response report !!");
             return;
         }
-        // Ok(rap_capnp::message::Which::ResponseSigrl(t)) => handle_sigrl_2(t),
-        // Ok(rap_capnp::message::Which::ResponseReport(t)) => handle_sigrl_2(t),
-        // _ => {
-        //     println!("Entrou no _ !!");
-        //     return;
-        // } // para não fazer match às responses user antes isto
-        // _ => return, // para não fazer match às responses user antes isto
         Err(e) => return,
     };
 
     // write length to stream: 4 bytes
     let mut write_len = [0u8; 4];
     NetworkEndian::write_u32(&mut write_len, output.len() as u32);
-    // let num = u32::from_be_bytes(write_len);
-    // println!("write_len={}", num);
     stream.write_all(&write_len).unwrap();
 
     // write serialized data to stream
@@ -258,13 +184,7 @@ fn handle_connection(mut stream: TcpStream, key: String) {
     println!("Wrote response to stream {}.", output.len());
 }
 
-// TODO Como extrair da função o status e o body?
-//      Pensar no formato de inter-computer protocol para saber. flat buffers?
-
-// fn get_sigrl(gid: [u8; 4], key: &str) {
 fn get_sigrl(gid: &str, key: &str) -> (u32, Vec<u8>) {
-    // do nothing for now
-
     // REVIEW Alguma forma de fazer isto directamente no append? (como o gid?)
     let header = "Ocp-Apim-Subscription-Key: ".to_string();
     let header = header + key;
@@ -287,20 +207,14 @@ fn get_sigrl(gid: &str, key: &str) -> (u32, Vec<u8>) {
             .unwrap();
         transfer.perform().unwrap();
     }
-    // easy.perform().unwrap();
 
-    // println!("{:?}", data); // responde body?
     println!("Response code: {}", easy.response_code().unwrap());
 
     return (easy.response_code().unwrap(), data);
 }
 
-// FIXME se AEP já vai preparada em vez de estrutura então tratar disso cá fora e aqui passar string ou bytes. Alternativa é enviar e receber estrutura já demonstrada e faer tudo lá dentro. // Talvez esta segunda alternativa melhor que encaixa depois ao passar dados para o protobuf?
-// (Mais importante é protobuf estar estável porque é API externa!)
 // Return aqui é: HTTP response code, report signature, report certificates, body
 fn get_report(aep: &str, key: &str) -> (u32, String, String, String, Vec<u8>) {
-    // TODO prepare AEP struycture using IAS accepted format: JSON
-    // let mut input = "this should be serialized aep".as_bytes();
     let mut input = aep.as_bytes();
 
     let mut list = List::new();
@@ -308,14 +222,6 @@ fn get_report(aep: &str, key: &str) -> (u32, String, String, String, Vec<u8>) {
     list.append(&("Ocp-Apim-Subscription-Key: ".to_owned() + key))
         .unwrap();
 
-    // for e in list.iter() {
-    //     println!("List has element: {:?}", e);
-    // }
-
-    // FIXME  These two not getting set, how to do it ??
-    // let report_signature = Vec::new(); // does nothing, fix
-    // let report_certificates = Vec::new(); // does nothing, fix
-    // let mut headers = Vec::new();
     let mut rid: String = String::new();
     let mut signature: String = String::new();
     let mut certificates: String = String::new();
@@ -329,19 +235,10 @@ fn get_report(aep: &str, key: &str) -> (u32, String, String, String, Vec<u8>) {
     {
         let mut transfer = easy.transfer();
         transfer
-            .read_function(|new_data| {
-                // output.extend_from_slice(new_data); // É isto que mete reply ??
-                // Ok(new_data.len())
-                Ok(input.read(new_data).unwrap())
-                //
-                // TODO  E agora, como vou buscar o resultado ??
-                //       E os headers resposta !?
-                //
-            })
+            .read_function(|new_data| Ok(input.read(new_data).unwrap()))
             .unwrap();
         transfer
             .header_function(|h| {
-                // headers.push(str::from_utf8(h).unwrap().to_string());
                 let s2: Vec<&str> = str::from_utf8(h).unwrap().trim().split(": ").collect();
                 if s2[0] == "Request-ID" {
                     println!("header rid:  {}", s2[1]);
@@ -364,15 +261,6 @@ fn get_report(aep: &str, key: &str) -> (u32, String, String, String, Vec<u8>) {
             .unwrap();
         transfer.perform().unwrap();
     }
-    // println!("headers:\n {:?}", headers);
-    // for x in &headers {
-    //     println!("header: {}", x);
-    // }
-    // println!("body:\n {:?}", output);
-    // easy.perform().unwrap();
-
-    // println!("{:?}", output); // responde body?
-    // println!("Response code: {}", easy.response_code().unwrap());
 
     return (
         easy.response_code().unwrap(),
