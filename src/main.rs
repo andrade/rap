@@ -1,12 +1,15 @@
 // use std::io::prelude::*;
 use byteorder::{BigEndian, ByteOrder, NetworkEndian};
+use cpu_time::ProcessTime;
 use std::io::{stdout, Read, Write};
 use std::net::TcpListener;
 use std::net::TcpStream;
 use std::str;
+use std::time::Duration;
 use threadpool::ThreadPool;
 
 use config::Config;
+use ctrlc;
 use curl::easy::{Easy, List};
 
 const BASE_URI: &str = "https://api.trustedservices.intel.com/sgx/dev";
@@ -36,12 +39,23 @@ fn main() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
     let pool = ThreadPool::new(4);
 
+    let start = ProcessTime::now();
+    ctrlc::set_handler(move || {
+        let duration: Duration = start.elapsed();
+        println!("Execution time: {:?}", duration);
+        // TODO shutdown listener and have duration+print below; not enough rust
+
+        std::process::exit(0);
+    })
+    .ok();
     for stream in listener.incoming() {
         let mut stream = stream.unwrap();
         let key2 = key.to_owned(); // REVIEW
 
         pool.execute(|| handle_connection(stream, key2));
     }
+    // let duration: Duration = start.elapsed();
+    // println!("Execution time: {:?}", duration);
 }
 
 // retorna mensagem pronta a escrever: o output !!!
